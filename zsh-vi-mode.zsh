@@ -3866,7 +3866,9 @@ function zvm_init() {
   zvm_bindkey visual 'u' zvm_vi_down_case
   zvm_bindkey visual '~' zvm_vi_opp_case
   zvm_bindkey visual 'v' zvm_vi_edit_command_line
-  zvm_bindkey vicmd  '.' zvm_repeat_change
+  if [[ $ZVM_READKEY_ENGINE != $ZVM_READKEY_ENGINE_ZLE ]]; then
+    zvm_bindkey vicmd  '.' zvm_repeat_change
+  fi
 
   # Open URL under cursor
   zvm_bindkey vicmd 'gx' zvm_open_under_cursor
@@ -3920,9 +3922,27 @@ function zvm_init() {
   esac
 
   # Bind and overwrite original y/d/c of vicmd
-  for c in {y,d,c}; do
-    zvm_bindkey vicmd "$c" $default_handler_widget
-  done
+  #
+  # With the ZLE read-key engine, hijacking y/d/c is harmful: the default
+  # handler reads motion keys with raw `read -k` straight from the tty,
+  # while f/t/F/T remain native ZLE prefix widgets that read their argument
+  # from ZLE's input queue. Two independent readers race for the same byte
+  # stream: when ZLE wins the find argument (timing dependent), the operator
+  # is left blocking in `read -k`, silently swallowing subsequent keystrokes
+  # and eventually corrupting the buffer. Native vi-delete/vi-change/vi-yank
+  # read motions through ZLE's single key pipeline, so keep them native in
+  # ZLE mode. All multi-character zvm bindings (ds", ci(, ysiw, ...) still
+  # resolve normally as keymap prefixes, so surround features are unaffected.
+  if [[ $ZVM_READKEY_ENGINE == $ZVM_READKEY_ENGINE_ZLE ]]; then
+    # Also keep the native `.` (vi-repeat-change): zvm's repeat bookkeeping
+    # only records actions that went through zvm widgets, so with native
+    # operators it would replay stale or nothing.
+    :
+  else
+    for c in {y,d,c}; do
+      zvm_bindkey vicmd "$c" $default_handler_widget
+    done
+  fi
 
   # Surround text-object
   # Enable surround text-objects (quotes, brackets)
